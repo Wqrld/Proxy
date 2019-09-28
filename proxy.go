@@ -57,7 +57,7 @@ func ReadVarIntBytes(varint []byte) (result int) {
 		result |= int(uint(b&0x7F) << uint(bytes*7))
 		//fmt.Println(result)//20 404
 		bytes++
-		fmt.Println(strconv.FormatInt(int64(0x80), 2))
+		//fmt.Println(strconv.FormatInt(int64(0x80), 2))
 
 		//10000000 most significant byte is set
 		if (b & 0x80) == 0x80 {
@@ -73,7 +73,7 @@ func ReadVarIntBytes(varint []byte) (result int) {
 var (
 	// addresses
 	localAddr  = flag.String("lhost", ":4444", "proxy local address")
-	targetAddr = flag.String("rhost", "panel.rapzprison.net:25565", "proxy remote address")
+	targetAddr = flag.String("rhost", "socket.ferox.host:25565", "proxy remote address")
 )
 
 func modifyresp(b *[]byte) {
@@ -96,7 +96,7 @@ func main() {
 	//	fmt.Sprintf(%08b, protocolversion[0])
 	//	fmt.Println("protocol version: " + strconv.Itoa(ReadVarIntBytes(protocolversion)))
 
-	fmt.Println(strings.Replace("5 cookies", "5", "2", -1))
+	//fmt.Println(strings.Replace("5 cookies", "5", "2", -1))
 
 	//18 > 24 length
 	// if err != nil {
@@ -191,22 +191,22 @@ func (s *Server) handleConn(client net.Conn) {
 			}
 			b := buff[:n]
 			//	fmt.Printf(hex.Dump(b[1:2]))
-			nullbyte, _ := hex.DecodeString("00")
-			if b[1] == nullbyte[0] {
+
+			if b[1] == 0x00 {
 				// len packet 94 03 11 73 6f 63 6b  65 74 2e 66 65 72 6f 78
-				fmt.Println("login packet")
+				fmt.Println("received 0x00 login packet from client")
 				var bytes []byte
 				var bitindex = 2
 				for {
 
 					bytes = append(bytes, b[bitindex])
-					
+
 					if (b[bitindex] & 0x80) == 0x80 {
-						fmt.Println("more bytes")
+						//	fmt.Println("more bytes to come")
 
 					} else {
 
-						fmt.Println(hex.Dump(bytes))
+						//	fmt.Println(hex.Dump(bytes))
 
 						//		protocolversion, _ := hex.DecodeString("940311")
 						//	fmt.Sprintf(%08b, protocolversion[0])
@@ -220,15 +220,41 @@ func (s *Server) handleConn(client net.Conn) {
 
 				//	firstpacket := b[0:b[0]]
 				//	fmt.Println(hex.Dump(firstpacket))
+			} else if b[1] == 0x01 {
+
+				fmt.Println("received encryption response from server")
+
+				var bytes []byte
+				var bitindex = 2 //3rd byte is the data
+				for {
+
+					bytes = append(bytes, b[bitindex])
+
+					if (b[bitindex] & 0x80) != 0x80 {
+
+						fmt.Println("shared secret length " + strconv.Itoa(ReadVarIntBytes(bytes)))
+
+						break
+					}
+					bitindex++
+
+				}
+
 			}
+
 			//log.Printf("received:\n%v", hex.Dump(b))
-			//	log.Printf(string(b))
 
 			if filter != nil {
 				//modify the response
 				filter(&b)
 			}
-			//fmt.Printf(typed+":\n%v", hex.Dump(b))
+
+			//shut up import checker
+			if 0 == 1 {
+				hex.Dump([]byte("dsa"))
+			}
+
+			//	fmt.Printf(typed+":\n%v", hex.Dump(b[0:b[0]]))
 			_, err = dst.Write(b)
 			if err != nil {
 				log.Println(err)
