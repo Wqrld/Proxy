@@ -45,6 +45,7 @@ import (
 // 	return
 // }
 
+// ReadVarIntBytes reads a varint from bytes
 func ReadVarIntBytes(varint []byte) (result int) {
 	var bytes byte
 
@@ -163,7 +164,7 @@ func (s *Server) serve(ln net.Listener) error {
 func (s *Server) handleConn(client net.Conn) {
 	// connects to target server
 
-	log.Println("conn")
+//	log.Println("conn")
 	var server net.Conn
 	var err error
 
@@ -174,18 +175,22 @@ func (s *Server) handleConn(client net.Conn) {
 	}
 
 	// write to dst what it reads from src
-	var pipe = func(src, dst net.Conn, typed string, filter func(b *[]byte)) {
+	var pipe = func(src, dst net.Conn, direction string) {
+
 		defer func() {
-			client.Close()
 			server.Close()
+			client.Close()
 		}()
 
 		buff := make([]byte, 65535)
+		var isMC bool = false
+
 		for {
 
 			n, err := src.Read(buff)
+
 			if err != nil {
-				log.Println(err)
+		  	log.Println(err)
 				return
 
 			}
@@ -193,76 +198,55 @@ func (s *Server) handleConn(client net.Conn) {
 			//	fmt.Printf(hex.Dump(b[1:2]))
 
 			if b[1] == 0x00 {
+				isMC = true
 				// len packet 94 03 11 73 6f 63 6b  65 74 2e 66 65 72 6f 78
 				fmt.Println("received 0x00 login packet from client")
 				var bytes []byte
 				var bitindex = 2
 				for {
-
 					bytes = append(bytes, b[bitindex])
 
 					if (b[bitindex] & 0x80) == 0x80 {
-						//	fmt.Println("more bytes to come")
-
+					//more bytes to come
 					} else {
-
-						//	fmt.Println(hex.Dump(bytes))
-
 						//		protocolversion, _ := hex.DecodeString("940311")
 						//	fmt.Sprintf(%08b, protocolversion[0])
 						fmt.Println("protocol version: " + strconv.Itoa(ReadVarIntBytes(bytes)))
-
 						break
 					}
 					bitindex++
-
 				}
-
 				//	firstpacket := b[0:b[0]]
 				//	fmt.Println(hex.Dump(firstpacket))
 			} else if b[1] == 0x01 {
-
 				fmt.Println("received encryption response from server")
-
 				var bytes []byte
 				var bitindex = 2 //3rd byte is the data
 				for {
-
 					bytes = append(bytes, b[bitindex])
-
 					if (b[bitindex] & 0x80) != 0x80 {
-
-						fmt.Println("shared secret length " + strconv.Itoa(ReadVarIntBytes(bytes)))
-
+						fmt.Println("shared secret length " + strconv.Itoa(ReadVarIntBytes(bytes))) //int to string
 						break
 					}
 					bitindex++
-
 				}
-
 			}
 
-			//log.Printf("received:\n%v", hex.Dump(b))
-
-			if filter != nil {
-				//modify the response
-				filter(&b)
+			if isMC == false && direction == "C -> S" {
+				fmt.Println("non-mc, dropping!")
+				return
 			}
+			log.Printf(direction+" :\n%v", hex.Dump(b))
 
-			//shut up import checker
-			if 0 == 1 {
-				hex.Dump([]byte("dsa"))
-			}
-
-			//	fmt.Printf(typed+":\n%v", hex.Dump(b[0:b[0]]))
 			_, err = dst.Write(b)
 			if err != nil {
 				log.Println(err)
 				return
 			}
+			
 		}
 	}
 
-	go pipe(client, server, "C -> S", s.ModifyRequest)
-	go pipe(server, client, "S -> C", s.ModifyResponse)
+	go pipe(client, server, "C -> S")
+	go pipe(server, client, "S -> C")
 }
