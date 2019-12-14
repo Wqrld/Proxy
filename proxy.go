@@ -8,6 +8,7 @@ import (
 
 	"log"
 	"net"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -74,7 +75,7 @@ func ReadVarIntBytes(varint []byte) (result int) {
 var (
 	// addresses
 	localAddr  = flag.String("lhost", ":4444", "proxy local address")
-	targetAddr = flag.String("rhost", "socket.ferox.host:25565", "proxy remote address")
+	targetAddr = flag.String("rhost", "195.201.229.81:25565", "proxy remote address")
 )
 
 func modifyresp(b *[]byte) {
@@ -120,6 +121,7 @@ func main() {
 	log.Println("Proxying from " + p.Addr + " to " + p.Target)
 
 	p.ListenAndServe()
+
 }
 
 // Server is a TCP server that takes an incoming request and sends it to another
@@ -153,6 +155,7 @@ func (s *Server) serve(ln net.Listener) error {
 	for {
 		client, err := ln.Accept()
 		log.Println("new conn")
+		log.Println(runtime.NumGoroutine())
 		if err != nil {
 			log.Println(err)
 			continue
@@ -163,19 +166,23 @@ func (s *Server) serve(ln net.Listener) error {
 
 func (s *Server) handleConn(client net.Conn) {
 	// connects to target server
-
-//	log.Println("conn")
+	log.Println("handling conn")
+	//	log.Println("conn")
 	var server net.Conn
 	var err error
 
+	var isClosed bool = false
 	server, err = net.Dial("tcp", s.Target)
 
 	if err != nil {
+		log.Println(err)
 		return
 	}
+log.Println("pipe create")
+	var isFirst bool = true
 
 	// write to dst what it reads from src
-	var pipe = func(src, dst net.Conn, direction string) {
+	var pipe = func(src, dst net.Conn, direction string, isItClosed *bool) {
 
 		defer func() {
 			server.Close()
@@ -186,28 +193,40 @@ func (s *Server) handleConn(client net.Conn) {
 		var isMC bool = false
 
 		for {
-
+			log.Println("loop")
+			if isFirst == false && isMC == false {
+				// *isItClosed = true
+				// fmt.Println("closed " + direction)
+				// return
+			}
+			fmt.Println(direction + " = " + strconv.FormatBool(*isItClosed))
 			n, err := src.Read(buff)
 
+			isFirst = false
+
 			if err != nil {
-		  	log.Println(err)
+				log.Println(direction)
+				log.Println(err)
 				return
 
 			}
 			b := buff[:n]
 			//	fmt.Printf(hex.Dump(b[1:2]))
 
-			if b[1] == 0x00 {
+			if b[1] == 0x00 && !isMC{
 				isMC = true
 				// len packet 94 03 11 73 6f 63 6b  65 74 2e 66 65 72 6f 78
 				fmt.Println("received 0x00 login packet from client")
 				var bytes []byte
 				var bitindex = 2
 				for {
+					if len(b) > 1 {
+						break
+					}
 					bytes = append(bytes, b[bitindex])
 
 					if (b[bitindex] & 0x80) == 0x80 {
-					//more bytes to come
+						//more bytes to come
 					} else {
 						//		protocolversion, _ := hex.DecodeString("940311")
 						//	fmt.Sprintf(%08b, protocolversion[0])
@@ -232,21 +251,19 @@ func (s *Server) handleConn(client net.Conn) {
 				}
 			}
 
-			if isMC == false && direction == "C -> S" {
-				fmt.Println("non-mc, dropping!")
-				return
-			}
-			log.Printf(direction+" :\n%v", hex.Dump(b))
-
-			_, err = dst.Write(b)
-			if err != nil {
-				log.Println(err)
-				return
-			}
+			// if isMC == true {
+				log.Printf(direction+" :\n%v", hex.Dump(b))
+				_, err = dst.Write(b)
+				if err != nil {
+					log.Println(err)
+					return
+				}
 			
+
 		}
 	}
+	log.Println("piping")
+	go pipe(server, client, "S -> C", &isClosed)
+	go pipe(client, server, "C -> S", &isClosed)
 
-	go pipe(client, server, "C -> S")
-	go pipe(server, client, "S -> C")
 }
